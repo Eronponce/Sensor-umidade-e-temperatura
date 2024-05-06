@@ -1,107 +1,80 @@
-#include "DHT.h"
-#include <ESP8266WiFi.h> // Make sure you have this line 
-#include <WiFiClientSecure.h>
-#define DHTPIN D2 // Pin connected to the DHT sensor
-#define DHTTYPE DHT11 // DHT 11 sensor type
-#define LDR_PIN A0
-#define GREEN_LED D3 // Green LED connected to pin D3
-#define RED_LED D4  // Red LED connected to pin D4
+#include <IRremote.h>
 
-DHT dht(DHTPIN, DHTTYPE); // Create a DHT object
+int RECV_PIN = 3;
+IRrecv irrecv(RECV_PIN);
+decode_results results;
 
-int readingsCount = 0; // Counter for the number of readings
-float temperatureSum = 0.0; // Sum of temperature readings
-float humiditySum = 0.0; // Sum of humidity readings
 
-const char* ssid = "Unifil Computacao"; // Replace with your WiFi SSID
-const char* password = ""; // Replace with your WiFi password
-const char* host = "script.google.com";  
-const char* GAS_ID = "AKfycbwORgSGCvWgrmEcuwJquIFbM9PAylcLQyT5OW-xe3gnUh0gGSk8QuhT5_J9vlmvK-h-Mg"; // Your Google Apps Script ID
-void setup() {
-  
-  Serial.begin(9600); // Initialize serial communication
-  Serial.println("DHTxx test!"); // Print a message
-
-  dht.begin(); // Initialize the DHT sensor
-  pinMode(GREEN_LED, OUTPUT); // Set Green LED pin as output
-  pinMode(RED_LED, OUTPUT);  // Set Red LED pin as output
+void setup()
+{
+  Serial.begin(9600);
+  irrecv.enableIRIn(); // Start the receiver
 }
 
+
+//Infinite loop
 void loop() {
-  // Read temperature and humidity from the DHT sensor
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
-  int brightnessValue = analogRead(LDR_PIN);
-
-  float brightnessPercentage = map(brightnessValue, 0, 1024, 0, 100);
-
-  // Check if the readings are valid
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("Failed to read from DHT");
-  } else {
-    // Print the current temperature and humidity readings
-    Serial.print("Humidity: ");
-    Serial.print(humidity);
-    Serial.print(" %t");
-    Serial.print("Temperature: ");
-    Serial.print(temperature);
-    Serial.println(" *C");
-    Serial.print("Brightness: ");
-    Serial.print(brightnessPercentage);
-    Serial.println("%");
-    Serial.println(brightnessValue);
-    String data = String("Humidity=") + humidity + "&Temperature=" + temperature + "&Brightness=" + brightnessPercentage;
-    update_google_sheet(data); 
-
-    // Calculate the average temperature and humidity after 10 readings
-    if (temperature <= 26) {
-        digitalWrite(GREEN_LED, HIGH); // Turn on Green LED
-        digitalWrite(RED_LED, LOW);  // Turn off Red LED
-      } else {
-        digitalWrite(GREEN_LED, LOW);  // Turn off Green LED
-        digitalWrite(RED_LED, HIGH);   // Turn on Red LED
-      }
+  if (irrecv.decode(&results)) {
+    Serial.println(results.value, DEC);
+    dump(&results);
+    irrecv.resume(); // Receive the next value
   }
-  
-  delay(2000); // Delay between readings (in milliseconds)
 }
 
-void update_google_sheet(String data) {
-  Serial.print("Connecting to ");
-  Serial.println(host);
-
-  // Connect to WiFi
-  Serial.printf("Connecting to WiFi network %s ", ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500); 
+//Dumps the result and prints the numeric received dada and type of remote
+void dump(decode_results *results) {
+  // Dumps out the decode_results structure.
+  // Call this after IRrecv::decode()
+  int count = results->rawlen;
+  if (results->decode_type == UNKNOWN) {
+    Serial.print("Unknown encoding: ");
   }
-  Serial.println(" connected successfully");
-
-  // Use WiFiClientSecure to establish HTTPS for Google Sheets
-  WiFiClientSecure client;
-  const int httpPort = 443; // HTTPS port 
-
-  client.setInsecure(); // (NOTE: Consider using full certificate verification in production)
-
-  if (!client.connect(host, httpPort)) {
-    Serial.println("Connection failed");
-    return; 
+  else if (results->decode_type == NEC) {
+    Serial.print("Decoded NEC: ");
   }
-
-  String url = "/macros/s/" + String(GAS_ID) + "/exec?" + data;
-  Serial.print("Requesting URL: ");
-  Serial.println(url);
-
-  // Send HTTP GET request
-  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-               "Host: " + String(host) + "\r\n" +
-               "Connection: close\r\n\r\n");
-
-  // Troubleshooting: Read and print the response
-  while (client.available()) {
-    String line = client.readStringUntil('\r');
-    Serial.println(line); 
+  else if (results->decode_type == SONY) {
+    Serial.print("Decoded SONY: ");
   }
+  else if (results->decode_type == RC5) {
+    Serial.print("Decoded RC5: ");
+  }
+  else if (results->decode_type == RC6) {
+    Serial.print("Decoded RC6: ");
+  }
+  else if (results->decode_type == PANASONIC) {
+    Serial.print("Decoded PANASONIC - Address: ");
+    Serial.print(results->address, HEX);
+    Serial.print(" Value: ");
+  }
+  else if (results->decode_type == LG) {
+    Serial.print("Decoded LG: ");
+  }
+  else if (results->decode_type == JVC) {
+    Serial.print("Decoded JVC: ");
+  }
+  else if (results->decode_type == AIWA_RC_T501) {
+    Serial.print("Decoded AIWA RC T501: ");
+  }
+  else if (results->decode_type == WHYNTER) {
+    Serial.print("Decoded Whynter: ");
+  }
+  Serial.print(results->value, HEX);
+  Serial.print(" (");
+  Serial.print(results->bits, DEC);
+  Serial.println(" bits)");
+  Serial.print("Raw (");
+  Serial.print(count, DEC);
+  Serial.print("): ");
+  
+  for (int i = 1; i < count; i++) {
+    if (i & 1) {
+      Serial.print(results->rawbuf[i]*USECPERTICK, DEC);
+    }
+    else {
+      Serial.write('-');
+      Serial.print((unsigned long) results->rawbuf[i]*USECPERTICK, DEC);
+    }
+    Serial.print(" ");
+  }
+  Serial.println();
 }
